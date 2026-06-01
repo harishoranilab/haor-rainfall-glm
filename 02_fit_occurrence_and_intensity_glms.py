@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 from pathlib import Path
 from typing import Iterable
@@ -10,12 +8,10 @@ import statsmodels.api as sm
 
 try:
     import matplotlib.pyplot as plt
-except Exception:  # plotting is optional
+except Exception:  
     plt = None
 
 
-# equation.pdf writes omega_k = 2*pi*k/365, so default is 365.0 exactly.
-# If your manuscript is later changed to 365.25, run with --year-length 365.25.
 DEFAULT_YEAR_LENGTH = 365.0
 
 
@@ -114,11 +110,11 @@ def recompute_equation_terms(df: pd.DataFrame, tau_mm: float, year_length: float
     df["month"] = df["date"].dt.month
     df["doy"] = df["date"].dt.dayofyear.astype(float)
 
-    # Equation (1): W_t = 1 if P_t > 0.1 mm, else 0.
+   
     df["wet"] = (df["rain_mmday"] > tau_mm).astype(int)
     df["rain_wet_mmday"] = df["rain_mmday"].where(df["wet"] == 1, np.nan)
 
-    # Equations (4), (5), and (9): k = 1, 2 seasonal harmonics.
+  
     omega1_d = 2.0 * np.pi * df["doy"] / year_length
     omega2_d = 4.0 * np.pi * df["doy"] / year_length
     df["sin_doy1"] = np.sin(omega1_d)
@@ -126,13 +122,12 @@ def recompute_equation_terms(df: pd.DataFrame, tau_mm: float, year_length: float
     df["sin_doy2"] = np.sin(omega2_d)
     df["cos_doy2"] = np.cos(omega2_d)
 
-    # Stage 1 persistence: W_{t-j}, j = 1,...,5 and N5_w(t).
+   
     for j in range(1, 6):
         df[f"wet_lag{j}"] = df["wet"].shift(j)
     df["prev5_wet_count"] = df["wet"].shift(1).rolling(5, min_periods=5).sum()
 
-    # Stage 2 persistence: log(1 + P_{t-j}), j = 1,...,4 and S5_p(t).
-    # Negative precipitation values are invalid for log1p rainfall-memory terms.
+
     if (df["rain_mmday"].dropna() < 0).any():
         raise ValueError("rain_mmday contains negative values; Gamma/log1p rainfall model requires non-negative rainfall.")
     df["log1p_rain"] = np.log1p(df["rain_mmday"])
@@ -140,15 +135,15 @@ def recompute_equation_terms(df: pd.DataFrame, tau_mm: float, year_length: float
         df[f"log1p_rain_lag{j}"] = df["log1p_rain"].shift(j)
     df["prev5_rain_sum"] = df["rain_mmday"].shift(1).rolling(5, min_periods=5).sum()
 
-    # Long-term centered trend for Stage 1 only, as written in equation.pdf X_t.
+  
     df["year_c"] = df["year"] - df["year"].median()
 
-    # Climate drivers and interactions.
-    require_columns(df, ["nino34", "dmi"], "climate-driver vector in equation.pdf")
+  
+    require_columns(df, ["nino34", "dmi"], "climate-driver vector")
     df = add_mjo_xy(df)
     df = clean_numeric(df, ["nino34", "dmi", "mjo_x", "mjo_y"])
 
-    # Equation vector order: occurrence uses sin then cos; amount Z_t in PDF writes cos then sin.
+  
     df["nino34_x_sin1"] = df["nino34"] * df["sin_doy1"]
     df["nino34_x_cos1"] = df["nino34"] * df["cos_doy1"]
     df["dmi_x_sin1"] = df["dmi"] * df["sin_doy1"]
@@ -197,14 +192,14 @@ def save_model_outputs(
     X: pd.DataFrame,
     res,
 ) -> None:
-    # Text summary
+    
     with (output_dir / f"{stem}_{stage_name}_summary.txt").open("w", encoding="utf-8") as f:
         f.write(res.summary().as_text())
         f.write("\n\nModel columns in order:\n")
         for c in X.columns:
             f.write(f" - {c}\n")
 
-    # Coefficient table
+    
     conf = res.conf_int()
     coef_tbl = pd.DataFrame(
         {
@@ -276,7 +271,7 @@ def plot_basic_diagnostics(output_dir: Path, stem: str, d_occ: pd.DataFrame, res
     if plt is None:
         return
 
-    # Occurrence calibration by deciles
+    
     occ = d_occ[["wet"]].copy()
     occ["p_wet"] = np.asarray(res_occ.fittedvalues)
     occ["bin"] = pd.qcut(occ["p_wet"], q=10, duplicates="drop")
@@ -326,7 +321,7 @@ def main() -> None:
     occ_cols = occurrence_columns()
     amt_cols = amount_columns()
 
-    # Drop first days with incomplete lag windows.
+    
     df_model = df.dropna(subset=occ_cols + amt_cols + ["wet", "rain_wet_mmday"]).copy()
 
     n_years_total = df_model["year"].nunique()
@@ -336,7 +331,7 @@ def main() -> None:
     stem = input_csv.stem
     df_model.to_csv(output_dir / f"{stem}_equation_terms_used.csv", index=False)
 
-    # Stage 1: Bernoulli/binomial GLM with logit link.
+    
     d_occ, y_occ, X_occ, res_occ = fit_glm(
         df_model,
         y_col="wet",
@@ -344,7 +339,7 @@ def main() -> None:
         family=sm.families.Binomial(sm.families.links.Logit()),
     )
 
-    # Stage 2: Gamma GLM with log link, conditional on wet days only.
+    
     df_wet = df_model[(df_model["wet"] == 1) & (df_model["rain_wet_mmday"] > tau_mm)].copy()
     d_amt, y_amt, X_amt, res_amt = fit_glm(
         df_wet,
@@ -356,7 +351,7 @@ def main() -> None:
     save_model_outputs(output_dir, stem, "stage1_occurrence", d_occ, y_occ, X_occ, res_occ)
     save_model_outputs(output_dir, stem, "stage2_intensity", d_amt, y_amt, X_amt, res_amt)
 
-    # Combined predictions on rows where both linear predictors are available.
+    
     X_occ_all = sm.add_constant(df_model[occ_cols].astype(float), has_constant="add")
     X_amt_all = sm.add_constant(df_model[amt_cols].astype(float), has_constant="add")
     pred = df_model[["date", "year", "month", "doy", "rain_mmday", "wet", "rain_wet_mmday"]].copy()
