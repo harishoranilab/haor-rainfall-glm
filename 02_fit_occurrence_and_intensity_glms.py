@@ -17,26 +17,26 @@ DEFAULT_YEAR_LENGTH = 365.0
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fit the exact two-stage rainfall GLM specified in equation.pdf."
+        description="Fit the exact two-stage rainfall GLM."
     )
     parser.add_argument("--input", type=Path, required=True, help="Daily model input CSV.")
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("output/strict_equation_glm"),
+        default=Path("output/strict_glm"),
         help="Directory for model summaries and fitted outputs.",
     )
     parser.add_argument(
         "--tau-mm",
         type=float,
         default=0.1,
-        help="Wet-day threshold in mm/day. Must match equation.pdf; default is 0.1.",
+        help="Wet-day threshold in mm/day; default is 0.1.",
     )
     parser.add_argument(
         "--year-length",
         type=float,
         default=DEFAULT_YEAR_LENGTH,
-        help="Denominator for seasonal harmonics. equation.pdf uses 365; default is 365.",
+        help="Denominator for seasonal harmonic uses 365; default is 365.",
     )
     parser.add_argument(
         "--min-years",
@@ -67,14 +67,7 @@ def clean_numeric(df: pd.DataFrame, cols: Iterable[str]) -> pd.DataFrame:
 
 
 def add_mjo_xy(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure mjo_x and mjo_y exist because equation.pdf uses MJOx and MJOy.
 
-    Priority:
-    1. Existing mjo_x and mjo_y.
-    2. Convert mjo_phase and mjo_amp to Cartesian terms.
-    3. Use rmm1 and rmm2 as mjo_x and mjo_y aliases.
-    """
     if {"mjo_x", "mjo_y"}.issubset(df.columns):
         return df
 
@@ -92,13 +85,13 @@ def add_mjo_xy(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     raise ValueError(
-        "equation.pdf requires MJOx and MJOy. Provide either mjo_x/mjo_y, "
+        "MJOx and MJOy. Provide either mjo_x/mjo_y, "
         "mjo_phase/mjo_amp, or rmm1/rmm2 in the input CSV."
     )
 
 
 def recompute_equation_terms(df: pd.DataFrame, tau_mm: float, year_length: float) -> pd.DataFrame:
-    """Recompute all terms exactly needed by equation.pdf."""
+   
     require_columns(df, ["date", "rain_mmday"], "equation-term construction")
 
     df = df.copy()
@@ -153,7 +146,7 @@ def recompute_equation_terms(df: pd.DataFrame, tau_mm: float, year_length: float
 
 
 def occurrence_columns() -> list[str]:
-    """Columns in the Stage 1 linear predictor eta_occ(t), matching equation.pdf."""
+    """Columns in the Stage 1 linear predictor eta_occ(t)."""
     return (
         ["sin_doy1", "cos_doy1", "sin_doy2", "cos_doy2"]
         + [f"wet_lag{j}" for j in range(1, 6)]
@@ -164,7 +157,7 @@ def occurrence_columns() -> list[str]:
 
 
 def amount_columns() -> list[str]:
-    """Columns in the Stage 2 linear predictor eta_amt(t), matching equation.pdf."""
+    """Columns in the Stage 2 linear predictor eta_amt(t)."""
     return (
         ["sin_doy1", "cos_doy1", "sin_doy2", "cos_doy2"]
         + [f"log1p_rain_lag{j}" for j in range(1, 5)]
@@ -236,7 +229,7 @@ def write_audit_file(
     n_years_amt: int,
 ) -> None:
     lines = []
-    lines.append("Strict equation.pdf GLM audit")
+    lines.append("Strict GLM audit")
     lines.append("================================")
     lines.append(f"Input CSV: {input_csv}")
     lines.append(f"Wet threshold tau_mm: {tau_mm}")
@@ -255,7 +248,7 @@ def write_audit_file(
     lines.append("  rain_wet_mmday | wet day ~ Gamma(log), response = Y_t = P_t | P_t > tau")
     lines.append("  predictors = seasonal harmonics + log1p rainfall lags 1-4 + prev5_rain_sum + Z_t")
     lines.append("  Z_t includes nino34, dmi, mjo_x, mjo_y, and ENSO/DMI seasonal interactions")
-    lines.append("  IMPORTANT: year_c is NOT included in Stage 2 because equation.pdf Z_t does not include it.")
+    lines.append("  IMPORTANT: year_c is NOT included in Stage 2.")
     lines.append(f"  N = {int(res_amt.nobs)}, years = {n_years_amt}, AIC = {float(res_amt.aic):.6f}")
     lines.append("  Columns:")
     for c in ["const"] + amt_cols:
@@ -263,7 +256,7 @@ def write_audit_file(
     lines.append("")
     lines.append("No model-selection scenarios, no piecewise trend, and no Stage-2 trend are fitted in this strict version.")
 
-    with (output_dir / f"{stem}_STRICT_equation_audit.txt").open("w", encoding="utf-8") as f:
+    with (output_dir / f"{stem}_STRICT_audit.txt").open("w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
 
@@ -376,13 +369,13 @@ def main() -> None:
 
     plot_basic_diagnostics(output_dir, stem, d_occ, res_occ, d_amt, res_amt, dpi)
 
-    print("[OK] Strict equation.pdf two-stage GLM fitted.")
+    print("[OK] two-stage GLM fitted.")
     print("Input:", input_csv)
     print("Output directory:", output_dir)
     print("Stage 1 occurrence: N =", int(res_occ.nobs), "AIC =", float(res_occ.aic))
     print("Stage 2 intensity : N =", int(res_amt.nobs), "AIC =", float(res_amt.aic))
     print("Saved key files:")
-    print(" -", output_dir / f"{stem}_STRICT_equation_audit.txt")
+    print(" -", output_dir / f"{stem}_STRICT_audit.txt")
     print(" -", output_dir / f"{stem}_stage1_occurrence_summary.txt")
     print(" -", output_dir / f"{stem}_stage2_intensity_summary.txt")
     print(" -", output_dir / f"{stem}_two_stage_predictions.csv")
